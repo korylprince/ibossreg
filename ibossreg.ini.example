@@ -1,0 +1,12 @@
+[server]
+host=example.com
+key=<key>
+
+[client]
+hostname=myhostname
+username=myusername
+subnets=172.16.0.0/12,192.168.0.0/16
+
+[groups]
+1=default_user
+2=administrator

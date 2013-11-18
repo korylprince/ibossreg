@@ -1,0 +1,142 @@
+#!/usr/bin/env python
+from __future__ import print_function
+try:
+    import ConfigParser
+except ImportError:
+    import configparser as ConfigParser
+from collections import defaultdict
+import os
+import sys
+import socket
+import select
+try:
+    from urllib2 import urlopen
+except ImportError:
+    from urllib.request import urlopen
+
+pipe = '/run/ibossreg'
+
+class globalStore(object):
+    pass
+
+g = globalStore()
+
+def printd(*args):
+    if g.debug:
+        print(''.join([str(x) for x in args]))
+        sys.stdout.flush()
+
+def getConfig():
+    config = ConfigParser.SafeConfigParser()
+    config.read('/etc/ibossreg/ibossreg.ini')
+
+    g.debug = False
+    if config.has_option('client', 'debug'):
+        if config.get('client', 'debug').lower() == 'true':
+            g.debug = True
+
+    if config.has_option('server', 'protocol'):
+        protocol = config.get('server', 'protocol')
+    else:
+        protocol = 'http'
+
+    if config.has_option('server', 'port'):
+        g.port = int(config.get('server', 'port'))
+    else:
+        g.port = 8015
+
+    if config.has_option('client', 'timeout'):
+        g.timeout = int(config.get('client', 'timeout'))
+    else:
+        g.timeout = 5
+
+    if config.has_option('client', 'interval'):
+        g.interval = int(config.get('client', 'interval'))
+    else:
+        g.interval = 150
+
+    g.host = config.get('server', 'host')
+    g.user = config.get('client', 'username')
+
+    printd('Using ', g.host, ':', g.port)
+    printd('Using timeout: ', g.timeout, ', interval: ', g.interval)
+
+    g.url = '{protocol}://{host}:{port}/appleAuth?action=logon&key={key}&user={user}&wn={clienthost}'.format(
+            protocol=protocol,
+            host=g.host,
+            port=g.port,
+            key=config.get('server', 'key'),
+            user='{user}',
+            clienthost=config.get('client', 'hostname')
+            )
+
+    if config.has_section('groups'):
+        g.groups = defaultdict(lambda:g.user, config.items('groups'))
+    
+    if config.has_option('client', 'subnets'):
+        import ipaddress
+        globals()['ipaddress'] = ipaddress
+        g.subnets = [ipaddress.ip_network(x.strip()) for x in config.get('client', 'subnets').split(',')]
+
+def main():
+    if hasattr(g, 'groups'):
+        try:
+            os.mkfifo(pipe)
+        except FileExistsError:
+            pass
+
+    while True:
+        if hasattr(g, 'subnets'):
+            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            s.settimeout(g.timeout)
+            try:
+                s.connect((g.host,g.port))
+                ip = ipaddress.ip_address(s.getsockname()[0])
+                for subnet in g.subnets:
+                    in_subnet = False
+                    if ip in subnet:
+                        printd('Setting user to ', g.user, '.')
+                        urlopen(g.url.format(user=g.user), timeout=g.timeout)
+                        in_subnet = True
+                        break
+                if not in_subnet:
+                    printd('Current address (', ip.compressed, ') not in any given subnets.')
+            except socket.timeout:
+                pass
+            finally:
+                s.shutdown(socket.SHUT_RDWR)
+                s.close()
+        else:
+            printd('Setting user to ', g.user, '.')
+            urlopen(g.url.format(user=g.user), timeout=g.timeout)
+
+        if hasattr(g, 'groups'):
+            fno = os.open(pipe, os.O_RDONLY|os.O_NONBLOCK)
+            f = os.fdopen(fno)
+            r, w, x = select.select([f], [], [], g.interval)
+            if f in r:
+                group = f.readline()
+                g.user = g.groups[group.strip()]
+                printd('Updating user to ', g.user, '.')
+            f.close()
+        else:
+            time.sleep(g.interval)
+                
+
+
+try:
+    getConfig()
+except:
+    print('Configuration Error!')
+    raise
+
+try:
+    main()
+except:
+    print('Runtime Error')
+    raise
+finally:
+    try:
+        os.unlink(pipe)
+    except:
+        pass
