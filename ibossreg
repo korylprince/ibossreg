@@ -104,8 +104,11 @@ def main():
             except socket.timeout:
                 pass
             finally:
-                s.shutdown(socket.SHUT_RDWR)
-                s.close()
+                try:
+                    s.shutdown(socket.SHUT_RDWR)
+                    s.close()
+                except:
+                    pass
         else:
             printd('Setting user to ', g.user, '.')
             urlopen(g.url.format(user=g.user), timeout=g.timeout)
