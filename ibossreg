@@ -101,7 +101,7 @@ def main():
                         break
                 if not in_subnet:
                     printd('Current address (', ip.compressed, ') not in any given subnets.')
-            except socket.timeout:
+            except:
                 pass
             finally:
                 try:
