@@ -1,9 +1,0 @@
-[Unit]
-Description=iBoss Registration Agent
-
-[Service]
-ExecStart=/usr/sbin/ibossreg
-Type=simple
-
-[Install]
-WantedBy=multi-user.target
